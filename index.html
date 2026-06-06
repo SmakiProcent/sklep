@@ -2293,6 +2293,7 @@ function confirmImportProdukty(){
       ex.cenas = prod.cenas;
       ex.vat   = prod.vat;
       ex.jed   = prod.jed;
+      if(prod.kat && prod.kat !== 'Import') ex.kat = prod.kat;
       if(!ex.ean && prod.ean) ex.ean = prod.ean;
       if(prod.plu){ ex.plu = prod.plu; ex.kod = prod.plu; }
       // oznacz jako zmieniona cena jeśli cena się różni
