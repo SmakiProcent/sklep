@@ -849,18 +849,7 @@ let db = loadDB();
 
 function emptyDB(){
   return {
-    produkty:[
-      {kod:'TOW001',ean:'5901234123001',nazwa:'Mleko 3.2% 1L',kat:'Nabiał',jed:'szt',cenaz:2.20,cenas:3.50,vat:5,min:10,stan:45},
-      {kod:'TOW002',ean:'5901234123002',nazwa:'Masło extra 200g',kat:'Nabiał',jed:'szt',cenaz:4.50,cenas:6.99,vat:5,min:8,stan:3},
-      {kod:'TOW003',ean:'5901234123003',nazwa:'Chleb wiejski 500g',kat:'Pieczywo',jed:'szt',cenaz:2.80,cenas:4.50,vat:5,min:5,stan:22},
-      {kod:'TOW004',ean:'5901234123004',nazwa:'Jajka L 10szt',kat:'Nabiał',jed:'opak',cenaz:5.00,cenas:8.99,vat:5,min:10,stan:2},
-      {kod:'TOW005',ean:'5901234123005',nazwa:'Woda mineralna 1.5L',kat:'Napoje',jed:'szt',cenaz:0.80,cenas:1.99,vat:23,min:20,stan:60},
-      {kod:'TOW006',ean:'5901234123006',nazwa:'Sok pomarańczowy 1L',kat:'Napoje',jed:'szt',cenaz:2.50,cenas:4.29,vat:5,min:10,stan:18},
-      {kod:'TOW007',ean:'5901234123007',nazwa:'Makaron spaghetti 400g',kat:'Sypkie',jed:'opak',cenaz:1.20,cenas:2.49,vat:5,min:15,stan:35},
-      {kod:'TOW008',ean:'5901234123008',nazwa:'Olej rzepakowy 1L',kat:'Sypkie',jed:'szt',cenaz:3.50,cenas:5.99,vat:5,min:8,stan:4},
-      {kod:'TOW009',ean:'5901234123009',nazwa:'Kawa mielona 250g',kat:'Napoje',jed:'opak',cenaz:8.00,cenas:14.99,vat:23,min:5,stan:12},
-      {kod:'TOW010',ean:'5901234123010',nazwa:'Proszek do prania 2kg',kat:'Chemia',jed:'opak',cenaz:12.00,cenas:21.99,vat:23,min:5,stan:9},
-    ],
+    produkty:[],
     faktury:[],
     magDocs:[],
     magHist:[],
@@ -949,7 +938,7 @@ function renderDashboard(){
   const today=nowDate();
   const sprzDzis=db.dziennaSprzedaz[today]||0;
   const trans=(db.transakcje||[]).filter(t=>t.data===today).length;
-  const alerty=db.produkty.filter(p=>p.stan<=p.min);
+  const alerty=db.produkty.filter(p=>p.min>0&&p.stan<p.min);
   const niezap=(db.faktury||[]).filter(f=>f.status==='Nieopłacona'&&f.typ==='sprzedaz').length;
   document.getElementById('d-sprzedaz').textContent=zl(sprzDzis);
   document.getElementById('d-trans').textContent=trans+' transakcji';
@@ -2208,35 +2197,37 @@ function importProduktyTxt(e){
 }
 
 function parsePCMarketTxt(txt){
+  // Format PC-Market TXT (tab-separated, Windows-1250):
+  // col0:Id  col1:Nazwa  col2:Na kasie  col3:Kod  col4:Marża zał.%  col5:Marża rz.%
+  // col6:Cena ew.  col7:Cena det.  col8:VAT %  col9:Ilość  col10:JM  col11:Kod CN
   const lines = txt.split('\n').map(l => l.trim()).filter(l => l);
   const wyniki = [];
-  const header = lines[1] ? lines[1].split('\t') : [];
-  const hasId = header[0] && header[0].trim().toLowerCase() === 'id';
-  const o = hasId ? 1 : 0;
 
   for(let i = 2; i < lines.length; i++){
     const cols = lines[i].split('\t');
-    if(cols.length < (hasId ? 10 : 9)) continue;
+    if(cols.length < 10) continue;
 
-    const plu      = hasId ? cols[0].trim() : '';
-    const nazwa    = cols[0+o].trim();
-    const kodRaw   = cols[2+o] ? cols[2+o].trim() : '';
-    const cenazRaw = cols[3+o] ? cols[3+o].trim().replace(',','.') : '0';
-    const cenasRaw = cols[5+o] ? cols[5+o].trim().replace(',','.') : '0';
-    const vatRaw   = cols[6+o] ? cols[6+o].trim().replace(' %','').replace('%','').trim() : '5';
-    const stanRaw  = cols[7+o] ? cols[7+o].trim().replace(',','.') : '0';
-    const jmRaw    = cols[8+o] ? cols[8+o].trim() : 'szt';
+    const plu      = (cols[0]||'').trim();
+    const nazwa    = (cols[1]||'').trim();
+    const kodRaw   = (cols[3]||'').trim();
+    const cenazRaw = (cols[6]||'0').trim().replace(',','.');
+    const cenasRaw = (cols[7]||'0').trim().replace(',','.');
+    const vatRaw   = (cols[8]||'5').trim().replace(' %','').replace('%','').trim();
+    const stanRaw  = (cols[9]||'0').trim().replace(',','.');
+    const jmRaw    = (cols[10]||'szt').trim();
+    // col[11] = Asortyment (jeśli plik eksportowany z kolumną Asortyment)
+    const asortyment = (cols[11]||'').trim();
 
     if(!nazwa) continue;
 
     const cenaz = parseFloat(cenazRaw) || 0;
     const cenas = parseFloat(cenasRaw) || 0;
-    const vat   = parseInt(vatRaw) || 5;
+    const vat   = vatRaw === 'ZW' ? 0 : (parseInt(vatRaw) || 5);
     const stan  = parseFloat(stanRaw) || 0;
 
     let jed = 'szt';
-    if(jmRaw.includes('kg')) jed = 'kg';
-    else if(jmRaw.includes(' l')) jed = 'l';
+    if(jmRaw.toLowerCase().includes('kg')) jed = 'kg';
+    else if(/\bl\b/.test(jmRaw.toLowerCase())) jed = 'l';
 
     const isPLU = /^\d{1,6}$/.test(kodRaw) && kodRaw.length <= 6;
     const ean   = (!isPLU && kodRaw) ? kodRaw : '';
@@ -2246,7 +2237,7 @@ function parsePCMarketTxt(txt){
       (plu && (p.plu === plu || p.kod === plu))
     );
 
-    wyniki.push({ nazwa, kodRaw, ean, plu, cenaz, cenas, vat, stan, jed, existing });
+    wyniki.push({ nazwa, kodRaw, ean, plu, cenaz, cenas, vat, stan, jed, asortyment, existing });
   }
   return wyniki;
 }
@@ -2286,12 +2277,12 @@ function confirmImportProdukty(){
       plu:   p.plu || '',
       ean:   p.ean || '',
       nazwa: p.nazwa,
-      kat:   'Import',
+      kat:   p.asortyment || 'Import',
       jed:   p.jed,
       cenaz: p.cenaz,
       cenas: p.cenas,
       vat:   p.vat,
-      min:   5,
+      min:   0,
       stan:  Math.max(0, p.stan),
       promo: { aktywna: false }
     };
